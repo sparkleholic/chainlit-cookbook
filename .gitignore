@@ -13,3 +13,4 @@ credentials.json
 token.json
 *.chainlit
 *.sql
+v_env

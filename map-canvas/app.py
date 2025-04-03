@@ -2,9 +2,25 @@ import json
 import chainlit as cl
 from anthropic import AsyncAnthropic
 
+from logging_transport import LoggingTransport
+import httpx
+
+transport = LoggingTransport(httpx.AsyncHTTPTransport())
+client = httpx.AsyncClient(transport=transport)
+
+# import logging
+
+# logging.basicConfig(level=logging.DEBUG)
+
+# # httpx의 디버깅 로그만 보기
+# httpx_logger = logging.getLogger("httpx")
+# httpx_logger.setLevel(logging.DEBUG)
+
 SYSTEM = "you are a helpful assistant."
 MODEL_NAME = "claude-3-5-sonnet-latest"
-c = AsyncAnthropic()
+
+# c = AsyncAnthropic()
+c = AsyncAnthropic(http_client=client)
 
 
 @cl.step(type="tool")

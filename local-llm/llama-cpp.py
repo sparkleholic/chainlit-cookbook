@@ -7,7 +7,7 @@ import chainlit as cl
 
 # Download the file here https://huggingface.co/TheBloke/Yarn-Llama-2-7B-128K-GGUF/tree/main
 # and update the path
-MODEL_PATH = "/Users/willydouhard/Downloads/yarn-llama-2-7b-128k.Q3_K_M.gguf"
+MODEL_PATH = "/hdd/models/EXAONE-3.0.7.8B-Instruct-Q4_K_M.gguf"
 
 
 @cl.cache
@@ -25,6 +25,7 @@ def instantiate_llm():
         n_threads=64,
         verbose=True,  # Verbose is required to pass to the callback manager
         streaming=True,
+        n_gpu_layers=100,
     )
     return llm
 

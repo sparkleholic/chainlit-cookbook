@@ -1,26 +1,14 @@
 import json
 import chainlit as cl
-from anthropic import AsyncAnthropic
-
-from logging_transport import LoggingTransport
 import httpx
 
-transport = LoggingTransport(httpx.AsyncHTTPTransport())
-client = httpx.AsyncClient(transport=transport)
-
-# import logging
-
-# logging.basicConfig(level=logging.DEBUG)
-
-# # httpx의 디버깅 로그만 보기
-# httpx_logger = logging.getLogger("httpx")
-# httpx_logger.setLevel(logging.DEBUG)
+from logging_transport import LoggingTransport
 
 SYSTEM = "you are a helpful assistant."
-MODEL_NAME = "claude-3-5-sonnet-latest"
+MODEL_NAME = "EXAONE-3.5-2.4B-Instruct"
 
-# c = AsyncAnthropic()
-c = AsyncAnthropic(http_client=client)
+transport = LoggingTransport(httpx.AsyncHTTPTransport())
+client = httpx.AsyncClient(base_url="http://localhost:8080", transport=transport)
 
 
 @cl.step(type="tool")
@@ -37,22 +25,25 @@ async def move_map_to(latitude: float, longitude: float):
 
 tools = [
     {
+      "type": "function",
+      "function": {
         "name": "move_map_to",
         "description": "Move the map to the given latitude and longitude.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "latitude": {
-                    "type": "string",
-                    "description": "The latitude of the location to move the map to",
-                },
-                "longitude": {
-                    "type": "string",
-                    "description": "The longitude of the location to move the map to",
-                },
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "latitude": {
+              "type": "string",
+              "description": "The latitude of the location to move the map to"
             },
-            "required": ["latitude", "longitude"],
-        },
+            "longitude": {
+              "type": "string",
+              "description": "The longitude of the location to move the map to"
+            }
+          },
+          "required": ["latitude", "longitude"]
+        }
+      }
     }
 ]
 
@@ -61,23 +52,28 @@ TOOL_FUNCTIONS = {
 }
 
 
-async def call_claude(chat_messages):
-    msg = cl.Message(content="", author="Claude")
+async def call_llama_server(chat_messages):
+    msg = cl.Message(content="", author="Llama")
 
-    async with c.messages.stream(
-        max_tokens=1024,
-        system=SYSTEM,
-        messages=chat_messages,
-        tools=tools,
-        model=MODEL_NAME,
-    ) as stream:
-        async for text in stream.text_stream:
-            await msg.stream_token(text)
+    payload = {
+        "system": SYSTEM,
+        "model": MODEL_NAME,
+        "messages": chat_messages,
+        "tools": tools,
+        "max_tokens": 1024,
+    }
+
+    async with client.stream("POST", "/v1/chat/completions", json=payload) as response:
+        async for line in response.aiter_lines():
+            if line.strip():
+                data = json.loads(line)
+                if "text" in data:
+                    await msg.stream_token(data["text"])
 
     await msg.send()
-    response = await stream.get_final_message()
+    final_response = response.json()  # Removed 'await' here
 
-    return response
+    return final_response
 
 
 async def call_tool(tool_use):
@@ -136,20 +132,31 @@ async def on_start():
 async def on_message(msg: cl.Message):
     chat_messages = cl.user_session.get("chat_messages")
     chat_messages.append({"role": "user", "content": msg.content})
-    response = await call_claude(chat_messages)
+    response = await call_llama_server(chat_messages)
 
-    while response.stop_reason == "tool_use":
-        tool_use = next(block for block in response.content if block.type == "tool_use")
-        tool_result = await call_tool(tool_use)
+    # Validate response structure
+    if "choices" not in response or not response["choices"]:
+        raise ValueError("Invalid response: 'choices' key is missing or empty.")
+
+    while "tool_calls" in response["choices"][0]["message"]:
+        tool_call = response["choices"][0]["message"]["tool_calls"][0]
+        function_name = tool_call["function"]["name"]
+        function_args = json.loads(tool_call["function"]["arguments"])
+
+        tool_function = TOOL_FUNCTIONS.get(function_name)
+        if tool_function:
+            tool_result = await tool_function(**function_args)
+        else:
+            tool_result = {"error": f"Function '{function_name}' not found."}
 
         messages = [
-            {"role": "assistant", "content": response.content},
+            {"role": "assistant", "content": response["choices"][0]["message"]["content"]},
             {
                 "role": "user",
                 "content": [
                     {
                         "type": "tool_result",
-                        "tool_use_id": tool_use.id,
+                        "tool_use_id": tool_call["id"],
                         "content": str(tool_result),
                     }
                 ],
@@ -157,12 +164,9 @@ async def on_message(msg: cl.Message):
         ]
 
         chat_messages.extend(messages)
-        response = await call_claude(chat_messages)
+        response = await call_llama_server(chat_messages)
 
-    final_response = next(
-        (block.text for block in response.content if hasattr(block, "text")),
-        None,
-    )
+    final_response = response["choices"][0]["message"]["content"]
 
     chat_messages = cl.user_session.get("chat_messages")
     chat_messages.append({"role": "assistant", "content": final_response})

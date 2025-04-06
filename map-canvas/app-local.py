@@ -1,14 +1,23 @@
 import json
 import chainlit as cl
-import httpx
 
 from logging_transport import LoggingTransport
+import httpx
 
-SYSTEM = "you are a helpful assistant."
-MODEL_NAME = "EXAONE-3.5-2.4B-Instruct"
+
 
 transport = LoggingTransport(httpx.AsyncHTTPTransport())
-client = httpx.AsyncClient(base_url="http://localhost:8080", transport=transport)
+client = httpx.AsyncClient(base_url="http://localhost:8080", transport=transport)# import logging
+
+# import logging
+
+# logging.basicConfig(level=logging.DEBUG)
+
+# # httpx의 디버깅 로그만 보기
+# httpx_logger = logging.getLogger("httpx")
+# httpx_logger.setLevel(logging.DEBUG)
+SYSTEM = "you are a helpful assistant."
+MODEL_NAME = "EXAONE-3.5-2.4B-Instruct"
 
 
 @cl.step(type="tool")
